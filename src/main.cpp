@@ -1,9 +1,13 @@
+  /**
+   * Comment the next line for avoiding the Serial Library to be included in the compilation
+   */
+  #define DEBUGGIN
+
   #include "ESP8266WiFi.h"
-  #include "WebSocketClient.h"
+  #include "SocketIOClient.h"
   #include "Arduino.h"
   #include "SPI.h"
   #include "Wire.h"
-  #include "SD.h"
   #include "MFRC522.h"
   #include "RtcDS1307.h"
 
@@ -14,27 +18,19 @@
    */
   #define SS_PIN 15
   #define RST_PIN 3
-
-  /**
-   * Comment the next line for avoiding the Serial Library to be included in the compilation
-   */
-  #define DEBUGGIN
-
+  String newCard = "";
 
   /**
    * Objets of the system
    */
-
   //Use for Get the information of the cards
   MFRC522 rfid(SS_PIN, RST_PIN); // Instance of the class
   //USE RtcDS1307 for configure and manipulate the Real Tiny Clock
   RtcDS1307 RTC;
   //Use for storage the data that could'n be sent to the server
 
-  //Use WebSocketClient for a connection through a socket :D
-  WebSocketClient webSocketClient;
-  // Use WiFiClient class to create TCP connections
-  WiFiClient client;
+  // Socket IO client for communicating with NodeJs Server trhough a socket and TCP connections
+  SocketIOClient client;
 
 
   /**
@@ -45,7 +41,7 @@
   const char* ssid     = "TORIBIO***";
   const char* password = "11TO23ry62";
   char path[] = "/";
-  char host[] = "localhost";
+  char host[] = "192.168.1.125";
 
   unsigned long WiFiResetingTime = 0;
   bool STATUS_LOOPING_WIFI = true;
@@ -78,10 +74,11 @@
   /**
    * Debuggin Functions
    */
-  #ifdef DEBUGGIN
-    void printDec(byte *buffer, byte bufferSize);
-    void printHex(byte *buffer, byte bufferSize);
 
+  void printDec(byte *buffer, byte bufferSize);
+  void printHex(byte *buffer, byte bufferSize);
+
+  #ifdef DEBUGGIN
     void printDateTime(const RtcDateTime& dt);
   #endif
 
@@ -209,12 +206,12 @@
       // delay(5000);
 
       // Connect to the websocket server
-      if (client.connect("localhost", LISTEN_PORT)) {
+      if (client.connect(host, LISTEN_PORT)) {
 
         #ifdef DEBUGGIN
           Serial.println("Connected");
         #endif
-
+        client.send("connection", "message", "Connected !!!!");
       } else {
 
         #ifdef DEBUGGIN
@@ -222,28 +219,9 @@
         #endif
 
         setupWiFi = false;
-        return setupWiFi;
 
       }
 
-      // Handshake with the server
-      webSocketClient.path = path;
-      webSocketClient.host = host;
-
-      if (webSocketClient.handshake(client)) {
-
-        #ifdef DEBUGGIN
-          Serial.println("Handshake successful");
-        #endif
-
-      } else {
-
-        #ifdef DEBUGGIN
-          Serial.println("Handshake failed.");
-        #endif
-
-        setupWiFi = false;
-      }
     }else{
       setupWiFi = false;
     }
@@ -304,37 +282,39 @@
    * Loop of the Wifi function
    */
   bool loop_WiFi(){
-    String data;
+
     bool loop_wifi = true;
     if (client.connected()) {
 
-      webSocketClient.getData(data);
-      if (data.length() > 0) {
-        #ifdef DEBUGGIN
-          Serial.print("Received data: ");
-          Serial.println(data);
-        #endif
-      }
-
-      // capture the value of analog 1, send it along
-
-      webSocketClient.sendData(data);
-
+      #ifdef DEBUGGIN
+        Serial.println("Seding Data....");
+      #endif
+      /**
+      * Send the card info
+      */
+      client.send("newcard", "HEX", newCard);
     } else {
 
       #ifdef DEBUGGIN
         Serial.println("Client disconnected.");
       #endif
 
+      /**
+      * Save the info in the SD Card
+      */
+
       loop_wifi = false;
-      STATUS_LOOPING_WIFI = loop_wifi;
+
     }
+
+
 
     // wait to fully let the client disconnect
     // delay(3000);
-    if (loop_wifi) {
+    if (!loop_wifi) {
       WiFiResetingTime = millis();
     }
+    STATUS_LOOPING_WIFI = loop_wifi;
     return loop_wifi;
   }
 
@@ -353,30 +333,40 @@
       }
     }
   }
+
+  /**
+  * Helper routine to dump a byte array as hex values to Serial.
+  */
+  void printHex(byte *buffer, byte bufferSize) {
+    newCard = "";
+    for (byte i = 0; i < bufferSize; i++) {
+      #ifdef DEBUGGIN
+        Serial.print(buffer[i] < 0x10 ? " 0" : " ");
+        Serial.print(buffer[i], HEX);
+      #endif
+      newCard += buffer[i];
+      newCard += ",";
+    }
+  }
+
+  /**
+  * Helper routine to dump a byte array as dec values to Serial.
+  */
+  void printDec(byte *buffer, byte bufferSize) {
+    newCard = "";
+    for (byte i = 0; i < bufferSize; i++) {
+      #ifdef DEBUGGIN
+        Serial.print(buffer[i] < 0x10 ? " 0" : " ");
+        Serial.print(buffer[i], DEC);
+      #endif
+      newCard += buffer[i];
+      newCard += ",";
+    }
+  }
   /**
    * Debuggin Functions
    */
   #ifdef DEBUGGIN
-    /**
-    * Helper routine to dump a byte array as hex values to Serial.
-    */
-    void printHex(byte *buffer, byte bufferSize) {
-      for (byte i = 0; i < bufferSize; i++) {
-        Serial.print(buffer[i] < 0x10 ? " 0" : " ");
-        Serial.print(buffer[i], HEX);
-      }
-    }
-
-    /**
-    * Helper routine to dump a byte array as dec values to Serial.
-    */
-    void printDec(byte *buffer, byte bufferSize) {
-      for (byte i = 0; i < bufferSize; i++) {
-        Serial.print(buffer[i] < 0x10 ? " 0" : " ");
-        Serial.print(buffer[i], DEC);
-      }
-    }
-
     /**
     * Print the Time as a String
     */
