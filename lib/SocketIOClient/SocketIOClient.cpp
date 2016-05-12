@@ -27,7 +27,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /**
  * Comment the next line for avoiding the Serial Library to be included in the compilation
  */
-#define DEBUGGIN
+// #define DEBUGGIN
 
 #include <SocketIOClient.h>
 
