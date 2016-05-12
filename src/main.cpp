@@ -2,15 +2,14 @@
    * Comment the next line for avoiding the Serial Library to be included in the compilation
    */
   #define DEBUGGIN
-
+  #include "Arduino.h"
   #include "ESP8266WiFi.h"
   #include "SocketIOClient.h"
-  #include "Arduino.h"
   #include "SPI.h"
-  #include "Wire.h"
   #include "MFRC522.h"
+  #include "Wire.h"
   #include "RtcDS1307.h"
-
+  #include "Arduinojson.h"
 
 
   /**
@@ -33,11 +32,16 @@
   SocketIOClient client;
 
 
+
   /**
    * Configuration variables for the Wifi Connection
    */
   #define LISTEN_PORT 3000
-  uint16_t TIME_OUT_CONNECTION_TIME_S = 8000;
+  #define ALLOWED_PACKETS 4
+  #define TIME_OUT_CONNECTION_TIME_S 12000
+  #define WEBSOCKET_RECONECCTION_TIME_S 180000
+  uint8_t packetsSent = 0;
+  uint32_t timeFromLastPacketSent = 0;
   const char* ssid     = "TORIBIO***";
   const char* password = "11TO23ry62";
   char path[] = "/";
@@ -46,6 +50,15 @@
   unsigned long WiFiResetingTime = 0;
   bool STATUS_LOOPING_WIFI = true;
 
+  /**
+   * Time Varibales
+   */
+  uint8_t hour;
+  uint8_t minute;
+  uint8_t second;
+  uint8_t day;
+  uint8_t month;
+  uint16_t year;
   //Reset Timer
   bool RESET_TIMER = false;
 
@@ -69,16 +82,15 @@
    * Will count the time for a reseting after get a fail response from the configuration of the wifi
    */
   void watchDog();
+  void encodeData();
   uint16_t watchDogInterval = 20000;//20 Seconds for configure the Wifi Again
 
   /**
    * Debuggin Functions
    */
-
-  void printDec(byte *buffer, byte bufferSize);
-  void printHex(byte *buffer, byte bufferSize);
-
   #ifdef DEBUGGIN
+    void printDec(byte *buffer, byte bufferSize);
+    void printHex(byte *buffer, byte bufferSize);
     void printDateTime(const RtcDateTime& dt);
   #endif
 
@@ -100,15 +112,17 @@
 
   void loop() {
 
-    // watchDog();
+
     if (loop_MFRC522()) {
       loop_DS1307();
+      encodeData();
       if (!loop_WiFi()) {
         /**
          * loop for the SD CARD saving routine
          */
       }
     }
+    watchDog();
   }
 
   /**
@@ -244,7 +258,7 @@
     return wasRead;
 
     #ifdef DEBUGGIN
-
+      //Just print the card's footprint via serial
       Serial.print(F("PICC type: "));
       MFRC522::PICC_Type piccType = rfid.PICC_GetType(rfid.uid.sak);
       Serial.println(rfid.PICC_GetTypeName(piccType));
@@ -269,10 +283,40 @@
   }
 
   /**
+   * Encode all the variables that the server needs as a JSON Object
+   */
+  void encodeData() {
+    //Json Object for communicating with the server
+    StaticJsonBuffer<200> jsonBuffer;
+    newCard = "";//Variable which is going to be send
+    JsonObject& card = jsonBuffer.createObject();//Name of the JSON object
+    JsonArray& number = card.createNestedArray("number");//Create an Array inside the JSONobject
+    for (uint8_t i = 0; i < rfid.uid.size; i++) {//Add the card's footprint to the JSON object
+      number.add(rfid.uid.uidByte[i]);
+    }
+    JsonArray& time = card.createNestedArray("time");//Array time created
+    //Add the time variables
+    time.add(year);
+    time.add(month);
+    time.add(day);
+    time.add(hour);
+    time.add(minute);
+    time.add(second);
+
+    //Convert the data into a String
+    card.printTo(newCard);
+  }
+
+  /**
   * Loop of the DS1307
   */
   void loop_DS1307() {
-    RTC.GetDateTime();
+    hour    = RTC.GetDateTime().Hour();
+    minute  = RTC.GetDateTime().Minute();
+    second  = RTC.GetDateTime().Second();
+    year    = RTC.GetDateTime().Year();
+    month   = RTC.GetDateTime().Month();
+    day     = RTC.GetDateTime().Day();
     #ifdef DEBUGGIN
       printDateTime(RTC.GetDateTime());
     #endif
@@ -287,12 +331,15 @@
     if (client.connected()) {
 
       #ifdef DEBUGGIN
-        Serial.println("Seding Data....");
+        Serial.println("Sending Data....");
       #endif
       /**
       * Send the card info
       */
-      client.send("newcard", "HEX", newCard);
+      // client.reconnect(host , LISTEN_PORT);
+      client.sendJSON("newcard", newCard);
+      timeFromLastPacketSent = millis();
+      packetsSent++;
     } else {
 
       #ifdef DEBUGGIN
@@ -321,57 +368,66 @@
 
   void watchDog() {
 
-    if (RESET_TIMER || !STATUS_LOOPING_WIFI) {
+    if (RESET_TIMER && !STATUS_LOOPING_WIFI) {
+      #ifdef DEBUGGIN
+        Serial.println("Wifi reconfiguration routine initilized...!!");
+      #endif
       uint16_t realtime = millis();
       if (millis() - WiFiResetingTime > watchDogInterval  ) {
         if (setup_WiFi()) {
           RESET_TIMER = false;
           STATUS_LOOPING_WIFI = false;
+          #ifdef DEBUGGIN
+            Serial.println("Wifi reconfigured..!!");
+          #endif
         }else{
           WiFiResetingTime = millis();
         }
       }
     }
+    if(packetsSent == ALLOWED_PACKETS || (millis() - timeFromLastPacketSent > WEBSOCKET_RECONECCTION_TIME_S)){
+      #ifdef DEBUGGIN
+        Serial.println("Reconnecting the webSocket");
+      #endif
+      client.reconnect(host, LISTEN_PORT);
+      packetsSent = 0;
+      timeFromLastPacketSent = millis();
+    }
+
   }
 
-  /**
-  * Helper routine to dump a byte array as hex values to Serial.
-  */
-  void printHex(byte *buffer, byte bufferSize) {
-    newCard = "";
-    for (byte i = 0; i < bufferSize; i++) {
-      #ifdef DEBUGGIN
-        Serial.print(buffer[i] < 0x10 ? " 0" : " ");
-        Serial.print(buffer[i], HEX);
-      #endif
-      newCard += buffer[i];
-      newCard += ",";
-    }
-  }
 
-  /**
-  * Helper routine to dump a byte array as dec values to Serial.
-  */
-  void printDec(byte *buffer, byte bufferSize) {
-    newCard = "";
-    for (byte i = 0; i < bufferSize; i++) {
-      #ifdef DEBUGGIN
-        Serial.print(buffer[i] < 0x10 ? " 0" : " ");
-        Serial.print(buffer[i], DEC);
-      #endif
-      newCard += buffer[i];
-      newCard += ",";
-    }
-  }
   /**
    * Debuggin Functions
    */
   #ifdef DEBUGGIN
     /**
+    * Helper routine to dump a byte array as hex values to Serial.
+    */
+    void printHex(byte *buffer, byte bufferSize) {
+      for (byte i = 0; i < bufferSize; i++) {
+          Serial.print(buffer[i] < 0x10 ? " 0" : " ");
+          Serial.print(buffer[i], HEX);
+      }
+    }
+
+    /**
+    * Helper routine to dump a byte array as dec values to Serial.
+    */
+    void printDec(byte *buffer, byte bufferSize) {
+      for (byte i = 0; i < bufferSize; i++) {
+          Serial.print(buffer[i] < 0x10 ? " 0" : " ");
+          Serial.print(buffer[i], DEC);
+      }
+    }
+
+    /**
     * Print the Time as a String
     */
     #define countof(a) (sizeof(a) / sizeof(a[0]))
+
     void printDateTime(const RtcDateTime& dt){
+
       char datestring[20];
       snprintf_P(datestring,
         countof(datestring),
