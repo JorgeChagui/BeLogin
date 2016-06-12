@@ -39,7 +39,7 @@
   #define LISTEN_PORT 3000
   #define ALLOWED_PACKETS 4
   #define TIME_OUT_CONNECTION_TIME_S 12000
-  #define WEBSOCKET_RECONECCTION_TIME_S 180000
+  #define WEBSOCKET_RECONECCTION_TIME_S 90000
   uint8_t packetsSent = 0;
   uint32_t timeFromLastPacketSent = 0;
   const char* ssid     = "TORIBIO***";
@@ -49,6 +49,7 @@
 
   unsigned long WiFiResetingTime = 0;
   bool STATUS_LOOPING_WIFI = true;
+  bool WEB_SOCKET_CONNECTION = true;
 
   /**
    * Time Varibales
@@ -59,8 +60,6 @@
   uint8_t day;
   uint8_t month;
   uint16_t year;
-  //Reset Timer
-  bool RESET_TIMER = false;
 
   /**
    * Definitions of configuration functions
@@ -83,6 +82,7 @@
    */
   void watchDog();
   void encodeData();
+  bool connectWebSocket();
   uint16_t watchDogInterval = 20000;//20 Seconds for configure the Wifi Again
 
   /**
@@ -102,8 +102,8 @@
     #endif
 
     SPI.begin(); // Init SPI bus
-    if (setup_WiFi()) {
-      RESET_TIMER = true;
+    if (setup_WiFi()){
+      connectWebSocket();
     }
     setup_MFRC522();
     setup_DS1307();
@@ -120,6 +120,8 @@
         /**
          * loop for the SD CARD saving routine
          */
+      }else{
+        connectWebSocket();
       }
     }
     watchDog();
@@ -217,30 +219,38 @@
 
       #endif
 
-      // delay(5000);
-
-      // Connect to the websocket server
-      if (client.connect(host, LISTEN_PORT)) {
-
-        #ifdef DEBUGGIN
-          Serial.println("Connected");
-        #endif
-        client.send("connection", "message", "Connected !!!!");
-      } else {
-
-        #ifdef DEBUGGIN
-          Serial.println("Client Connection failed.");
-        #endif
-
-        setupWiFi = false;
-
-      }
-
     }else{
       setupWiFi = false;
     }
 
     return setupWiFi;
+  }
+
+  /**
+   * WebSocket Connection
+   */
+  bool connectWebSocket() {
+    // Connect to the websocket server
+    WEB_SOCKET_CONNECTION = true;
+
+    if (client.connect(host, LISTEN_PORT)) {
+
+      #ifdef DEBUGGIN
+        Serial.println("Connected");
+      #endif
+      client.send("connection", "message", "Connected !!!!");
+
+    } else {
+
+      #ifdef DEBUGGIN
+        Serial.println("Client Connection failed.");
+      #endif
+
+      WEB_SOCKET_CONNECTION = false;
+
+    }
+
+    return WEB_SOCKET_CONNECTION;
   }
   /**
   * Loop of the MFRC522
@@ -288,20 +298,24 @@
   void encodeData() {
     //Json Object for communicating with the server
     StaticJsonBuffer<200> jsonBuffer;
+
     newCard = "";//Variable which is going to be send
     JsonObject& card = jsonBuffer.createObject();//Name of the JSON object
-    JsonArray& number = card.createNestedArray("number");//Create an Array inside the JSONobject
+    JsonArray& code = card.createNestedArray("code");//Create an Array inside the JSONobject
     for (uint8_t i = 0; i < rfid.uid.size; i++) {//Add the card's footprint to the JSON object
-      number.add(rfid.uid.uidByte[i]);
+      code.add(rfid.uid.uidByte[i]);
     }
-    JsonArray& time = card.createNestedArray("time");//Array time created
-    //Add the time variables
-    time.add(year);
-    time.add(month);
-    time.add(day);
-    time.add(hour);
-    time.add(minute);
-    time.add(second);
+
+    JsonObject& Time = jsonBuffer.createObject();
+    //Add the Time variables
+    Time["year"] = year;
+    Time["month"] = month;
+    Time["day"] = day;
+    Time["hour"] = hour;
+    Time["minute"] = minute;
+    Time["second"] = second;
+
+    card["time"] = Time;
 
     //Convert the data into a String
     card.printTo(newCard);
@@ -346,21 +360,14 @@
         Serial.println("Client disconnected.");
       #endif
 
-      /**
-      * Save the info in the SD Card
-      */
-
       loop_wifi = false;
 
     }
 
-
-
-    // wait to fully let the client disconnect
-    // delay(3000);
     if (!loop_wifi) {
       WiFiResetingTime = millis();
     }
+
     STATUS_LOOPING_WIFI = loop_wifi;
     return loop_wifi;
   }
@@ -368,14 +375,13 @@
 
   void watchDog() {
 
-    if (RESET_TIMER && !STATUS_LOOPING_WIFI) {
+    if (STATUS_LOOPING_WIFI) {
       #ifdef DEBUGGIN
         Serial.println("Wifi reconfiguration routine initilized...!!");
       #endif
       uint16_t realtime = millis();
       if (millis() - WiFiResetingTime > watchDogInterval  ) {
         if (setup_WiFi()) {
-          RESET_TIMER = false;
           STATUS_LOOPING_WIFI = false;
           #ifdef DEBUGGIN
             Serial.println("Wifi reconfigured..!!");
