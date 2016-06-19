@@ -67,10 +67,9 @@ WiFiManager wifiManager;
  */
 #define LISTEN_PORT 3000
 #define TIME_OUT_CONNECTION_TIME_S 12000
-const char* ssid     = "TORIBIO***";
-const char* password = "11TO23ry62";
-char path[] = "/";
-char host[] = "192.168.1.35";
+const char* ssid     = "SSID";
+const char* password = "PASSWORD";
+char WebSocketServerIP[] = "192.168.1.35";
 
 /**
  * Time Varibales
@@ -249,7 +248,7 @@ void setup_WifiManager(){
  * @return [description]
  */
 void setup_WebSocketConection(){
-  webSocket.begin(host, LISTEN_PORT);
+  webSocket.begin(WebSocketServerIP, LISTEN_PORT);
   webSocket.onEvent(webSocketEvent);
 }
 
