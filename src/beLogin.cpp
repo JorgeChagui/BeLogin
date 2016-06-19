@@ -88,7 +88,7 @@ uint16_t year;
 void setup_MFRC522();
 void setup_DS1307();
 bool setup_WiFi();
-bool setup_WebSocketConection();
+void setup_WebSocketConection();
 void setup_SD();
 void setup_WifiManager();
 
@@ -106,7 +106,6 @@ void loop_SD();
 void encodeData();
 bool sendData();
 
-bool webSocketConnection();
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t lenght);
 
 /**
@@ -126,9 +125,7 @@ void setup() {
   #endif
   setup_WifiManager();
   setup_WiFi();
-  webSocket.begin(host, LISTEN_PORT);
-  webSocket.onEvent(webSocketEvent);
-  // setup_WebSocketConection();
+  setup_WebSocketConection();
   setup_MFRC522();
   setup_DS1307();
 
@@ -251,9 +248,8 @@ void setup_WifiManager(){
  * Initializing the Web Socket connection
  * @return [description]
  */
-bool setup_WebSocketConection(){
-
-  webSocket.begin("192.168.1.35", 3000);
+void setup_WebSocketConection(){
+  webSocket.begin(host, LISTEN_PORT);
   webSocket.onEvent(webSocketEvent);
 }
 
